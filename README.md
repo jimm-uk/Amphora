@@ -542,7 +542,7 @@ Amphora-runtime   projects/ outbox/ backups/ logs/ archive/ — not a repository
 
 ```sh
 git clone <your remote> Amphora
-git -C Amphora worktree add ../Amphora-dev dev
+git -C Amphora worktree add -b dev ../Amphora-dev
 mkdir Amphora-runtime        # and set AMPHORA_RUNTIME_DIR in Amphora/etc/amphora.local
 ```
 
