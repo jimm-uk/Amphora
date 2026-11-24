@@ -1,0 +1,80 @@
+# Claude Code session material: maintainer notes and scratch, kept per working tree and
+# never published. Unanchored, so a CLAUDE.md in any subfolder is covered too.
+TODO.md
+CLAUDE.md
+CLAUDE.local.md
+
+# Per-machine settings. The .example files are tracked; the real ones are not.
+etc/amphora.local
+# The pre-Amphora name. amphoractl refuses to run while it exists, but a stale copy
+# still holds phone numbers and addresses and must never be committed.
+etc/hermes.local
+etc/mounts
+etc/feeds.csv
+# The list's tab-separated predecessor. A stale copy still names one machine's sources.
+etc/feeds.tsv
+# The temporary copy `amphoractl signal groups` writes beside amphora.local; it holds
+# everything that file does.
+etc/amphora.local.tmp.*
+
+# Written by `up` at the runtime folder's root, which is the checkout when
+# AMPHORA_RUNTIME_DIR is unset. It names this checkout's path on this machine.
+.amphora-stack
+
+# Secrets live in podman's secret store, never here — this is belt and braces.
+.env
+.env.*
+*.key
+*.pem
+auth.json
+
+# Agent workspace: one sub-folder per project, each typically its own repo.
+projects/
+
+# The agent's own skills: personal to one deployment, and written by the agent.
+/skills/
+
+# Hermes state lives in podman volumes, but guard against a stray bind mount.
+.hermes/
+data/
+logs/
+tmp/
+
+# Volume snapshots from `amphoractl backup`.
+#
+# DO NOT REMOVE. A snapshot is a byte-for-byte copy of /opt/data: every session, memory,
+# skill and kanban card the agent holds, including anything it was ever told in
+# confidence. Committing one cannot be undone by deleting it later — the objects stay in
+# history and in every clone. `amphoractl backup` also writes backups/.gitignore as a
+# second line of defence, and `amphoractl doctor` fails if this entry stops working.
+backups/
+
+# Files the agent sent over Signal or email, from /mounts/outbox. Whatever it was asked
+# to send.
+outbox/
+
+# Superseded agent output, copied out of projects/ before a rerun overwrites it. Same
+# class as projects/ — agent-generated content, not stack material — and it can carry
+# whatever the agent was researching, so it is not tracked here.
+archive/
+
+# Session handovers. Each names real addresses, domains and numbers for one machine, and
+# each says in its own header that it stays out of git — this is what makes that true.
+HANDOVER-*.md
+
+# Scratch output from Claude Code sessions; not stack material.
+Claude outputs/
+.claude/
+
+# Python bytecode, from running the sweep in tools/.
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Editor state: per-person, and it can record local paths.
+.vscode/
+.idea/
+*.swp
+*~

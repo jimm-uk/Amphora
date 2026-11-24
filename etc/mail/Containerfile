@@ -1,0 +1,7 @@
+FROM docker.io/library/python:3.12-alpine
+COPY requirements.txt /tmp/
+RUN pip install --no-cache-dir --require-hashes --no-deps --only-binary=:all: \
+        -r /tmp/requirements.txt && rm /tmp/requirements.txt
+COPY relay.py subject.py htmlbody.py /
+USER nobody
+ENTRYPOINT ["python", "-u", "/relay.py"]

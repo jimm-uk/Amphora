@@ -1,0 +1,83 @@
+# Agent runtime image for the Hermes sandbox.
+#
+# The whole point of this image is the UID/GID: amphoractl passes your macOS
+# `id -u` / `id -g` at build time and the image's default USER is set to them, so
+# everything the agent writes into /workspace lands on the Mac owned by you, with
+# no chown afterwards and no --user flag at run time.
+#
+# Do NOT try to achieve this with Hermes' `terminal.docker_run_as_host_user: true`.
+# That flag resolves `id -u` inside the *Hermes* container, which is UID 10000 —
+# not your Mac user. It must stay false.
+#
+# Rebuild after editing:  ./bin/amphoractl build-sandbox
+
+ARG BASE=docker.io/nikolaik/python-nodejs:python3.11-nodejs20
+FROM ${BASE}
+
+ARG HOST_UID
+ARG HOST_GID
+ARG USERNAME=agent
+
+USER root
+
+# groupadd -o because macOS `staff` is GID 20, which already exists in Debian as
+# `dialout`. Numeric ownership is what matters; the name is cosmetic.
+RUN set -eux; \
+    [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] || { echo 'HOST_UID and HOST_GID build args are required: ./bin/amphoractl build-sandbox' >&2; exit 1; }; \
+    if ! getent group "${HOST_GID}" >/dev/null; then groupadd -o -g "${HOST_GID}" "${USERNAME}"; fi; \
+    if ! getent passwd "${HOST_UID}" >/dev/null; then \
+      useradd -o -u "${HOST_UID}" -g "${HOST_GID}" -m -d "/home/${USERNAME}" -s /bin/bash "${USERNAME}"; \
+    fi; \
+    mkdir -p "/home/${USERNAME}" /workspace; \
+    chown -R "${HOST_UID}:${HOST_GID}" "/home/${USERNAME}" /workspace; \
+    chmod 0711 /root
+
+# chmod 0711 /root: Hermes mounts skills, caches and attachments at /root/.hermes/...,
+# and Debian's /root is 0700, so this user could not reach them whatever the mounts
+# themselves allow. 0711 is traverse-only; /root cannot be listed.
+
+# Baked at build time. The agent runs unprivileged with no route to root — no sudo,
+# no setuid helpers — so anything it needs at run time either lives here or goes into
+# its writable HOME (see the prefixes below). Adding a tool means editing this file
+# and running `./bin/amphoractl build-sandbox`.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git ripgrep jq curl ca-certificates less unzip build-essential \
+      poppler-utils libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 \
+      fonts-dejavu-core fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
+# Media, browser and OCR tooling, none of which the agent can install without root.
+# chromium is the packaged browser at /usr/bin/chromium, outside ~/.cache, so pointing
+# Playwright's executable_path at it survives a cache clear; it needs --no-sandbox in
+# here, as any Chromium in an unprivileged container does. The Noto fonts are so pages
+# in non-Latin scripts and emoji render as text, not boxes, in screenshots and PDFs.
+# gh is installed unauthenticated — no credential reaches
+# this sandbox (docker_forward_env is []), so giving it a token is a separate decision.
+# imagemagick ships with the base image today and is named so a new base cannot drop it.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      chromium chromium-driver ffmpeg gh imagemagick sqlite3 tesseract-ocr \
+      fonts-noto fonts-noto-cjk fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/*
+
+# Document and voice tooling that scheduled jobs depend on. The sandbox's HOME is not
+# persisted, so anything pip-installed by hand is gone after `reset-sandbox` or
+# `build-sandbox`, and a job cannot reinstall it: Hermes blocks `pip install` when no
+# one is present to approve it. So the weekly markets PDF (weasyprint + markdown, checked
+# with pypdf or pdftotext), the bundled pdf skill (reportlab, pdfplumber) and voice
+# notes (edge-tts) are baked here. Pango, HarfBuzz and the fonts are weasyprint's
+# runtime libraries.
+RUN pip install --no-cache-dir \
+      weasyprint markdown pypdf pdfplumber reportlab edge-tts
+
+# Writable install prefixes so `npm i -g` and `pip install --user` work unprivileged.
+# No bytecode caches: they land as __pycache__ beside the agent's scripts in /projects.
+ENV HOME="/home/${USERNAME}" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    NPM_CONFIG_PREFIX="/home/${USERNAME}/.npm-global" \
+    PATH="/home/${USERNAME}/.npm-global/bin:/home/${USERNAME}/.local/bin:${PATH}"
+
+RUN mkdir -p "${HOME}/.npm-global" "${HOME}/.local/bin" \
+    && chown -R "${HOST_UID}:${HOST_GID}" "${HOME}"
+
+USER ${HOST_UID}:${HOST_GID}
+WORKDIR /workspace

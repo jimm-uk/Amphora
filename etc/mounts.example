@@ -1,0 +1,25 @@
+# Folders exposed to the Hermes agent, beyond projects/. Copy to `etc/mounts`
+# (gitignored) or, better, let amphoractl write it:
+#
+#     ./bin/amphoractl mount add ~/Documents/Research
+#     ./bin/amphoractl mount add ~/Media/Reference refs --ro
+#     ./bin/amphoractl mount ls
+#     ./bin/amphoractl up               # dind holds the bind; it is fixed at create time
+#
+# One entry per line: name<TAB>path[<TAB>ro]. Read as data, never sourced as shell —
+# a leading ~/ is expanded and nothing else is, so no variables, no globs, no commands.
+# Spaces work as separators, but a path containing spaces needs the tabs.
+#
+# Each entry reaches the agent at /mounts/<name>, at the same path inside amphora-dind.
+# The names kanban and outbox are taken. The path must exist and must be inside a
+# folder the podman machine shares, or it binds as an empty directory with no error
+# anywhere — `amphoractl shares` lists what the machine needs.
+#
+# amphoractl refuses a source that would expose the stack itself, the snapshots in
+# backups/, the outbox, your whole home directory, or the Obsidian vault beyond its
+# Kanban folder.
+# Everything else on the Mac stays invisible to the agent, which is the default.
+#
+#name	path	[ro]
+#research	/Users/you/Documents/Research
+#refs	/Users/you/Media/Reference	ro

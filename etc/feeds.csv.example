@@ -1,0 +1,29 @@
+# Sources for the AI-watch digest. Copy to etc/feeds.csv (gitignored, per checkout),
+# edit, then `amphoractl feeds push`. FEEDS.md has the design.
+#
+# One per line, comma-separated:  name,type,tier,url[,pattern]
+#   type     rss | atom | hf (Hugging Face models API) | page (links on a web page)
+#   tier     release (capped at 1,500 chars an item) | zeitgeist (25,000)
+#   pattern  page sources only: a regex the link's path must match in full
+# A field that contains a comma goes in double quotes:  "/post/[0-9]{1,4}"
+# Spaces around a field are ignored. A line starting with # is paused. https only.
+# Check a new URL first:
+#   amphoractl feeds check <url> [type [pattern]]
+#
+# Patterns that cover most projects:
+#   GitHub releases   https://github.com/<org>/<repo>/releases.atom
+#   Substack          https://<name>.substack.com/feed
+#   Hugging Face org  https://huggingface.co/api/models?author=<org>&sort=createdAt&direction=-1&limit=20
+AINews,rss,zeitgeist,https://latent.space/feeds/news.xml
+OpenAI news,rss,release,https://openai.com/news/rss.xml
+Anthropic news,page,release,https://www.anthropic.com/news,/news/[a-z0-9-]+
+Claude Code,atom,release,https://github.com/anthropics/claude-code/releases.atom
+Hermes Agent,atom,release,https://github.com/NousResearch/hermes-agent/releases.atom
+Nous models,hf,release,https://huggingface.co/api/models?author=NousResearch&sort=createdAt&direction=-1&limit=20
+Ollama blog,rss,release,https://ollama.com/blog/rss.xml
+Ollama,atom,release,https://github.com/ollama/ollama/releases.atom
+LM Studio blog,rss,release,https://lmstudio.ai/rss.xml
+# lms publishes no GitHub releases (checked 2026-11-09); the blog above carries LM Studio's.
+#LM Studio CLI,atom,release,https://github.com/lmstudio-ai/lms/releases.atom
+Unsloth blog,rss,release,https://unslothai.substack.com/feed
+Unsloth,atom,release,https://github.com/unslothai/unsloth/releases.atom

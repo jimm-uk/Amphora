@@ -1,0 +1,21 @@
+# amphora-feeds: fetches the sources in etc/feeds.csv and writes cleaned batches into the
+# agent's inbox. FEEDS.md has the design.
+#
+# Built by `amphoractl` from a temporary context holding this file, fetch.py and the
+# checkout's feeds.csv, so the list is fixed in the image and the agent has no way to
+# change it. HOST_UID/HOST_GID have no defaults, as in etc/sandbox: the container writes
+# into a folder on the Mac and must do so as the Mac's user, and a build that bypasses
+# amphoractl should fail rather than bake in somebody's ids.
+FROM docker.io/library/python:3.12-alpine
+RUN pip install --no-cache-dir feedparser==6.0.11 defusedxml==0.7.1
+ARG HOST_UID
+ARG HOST_GID
+RUN if [ -z "$HOST_UID" ] || [ -z "$HOST_GID" ]; then \
+      echo "HOST_UID and HOST_GID are required — build with amphoractl" >&2; exit 1; fi \
+    && mkdir -p /app /state /inbox && chown "$HOST_UID:$HOST_GID" /state /inbox
+COPY fetch.py feeds.csv /app/
+# A list that does not parse fails the build, not the first fetch.
+RUN python /app/fetch.py --validate
+ENV PYTHONDONTWRITEBYTECODE=1
+USER ${HOST_UID}:${HOST_GID}
+ENTRYPOINT ["python", "-u", "/app/fetch.py"]

@@ -1,0 +1,27 @@
+# SearXNG overrides for Amphora. Merged over SearXNG's shipped defaults.
+#
+# Seeded into the `amphora-searxng-config` podman volume by `amphoractl up` — the image's
+# entrypoint rewrites this file in place (it substitutes SEARXNG_SECRET), which is
+# why it is copied into a volume rather than bind-mounted from this repo.
+use_default_settings: true
+
+server:
+  # Replaced at container start from the auto-generated `searxng_secret` podman secret.
+  secret_key: "ultrasecretkey"
+  # Private instance on an internal podman network, reachable only by the Hermes
+  # container. The rate limiter would only throttle Hermes itself.
+  limiter: false
+  image_proxy: false
+
+search:
+  # Hermes talks to SearXNG over its JSON API. Without `json` here every query
+  # comes back 403 Forbidden — this is the single most common misconfiguration.
+  formats:
+    - html
+    - json
+
+general:
+  instance_name: "amphora-searxng"
+  # Do not advertise a public instance.
+  donation_url: false
+  contact_url: false

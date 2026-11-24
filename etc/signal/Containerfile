@@ -1,0 +1,4 @@
+FROM docker.io/library/python:3.12-alpine
+COPY relay.py /
+USER nobody
+ENTRYPOINT ["python", "-u", "-B", "/relay.py"]

@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+# amphoractl — Amphora: a containerised Hermes Agent on local Podman (macOS)
+#
+#   Hermes container  ──DOCKER_HOST(TLS)──▶  privileged dind container
+#        (no privileges)                        │
+#                                               └─▶ agent sandbox containers
+#                                                     /projects        ⇄  <runtime>/projects
+#                                                     /mounts/outbox   ⇄  <runtime>/outbox
+#                                                     /mounts/<name>   ⇄  etc/mounts, vault
+#
+# Secrets live in podman's secret store and are injected as process env at
+# container start. Nothing sensitive is written to this folder or to git.
+#
+# Naming: Hermes is the upstream product, and anything that is Hermes itself keeps its
+# name — the image, the `hermes` container, the hermes-data volume, HERMES_* variables
+# that upstream reads. Everything this script adds around it is Amphora, and every
+# setting it reads from etc/amphora.local is AMPHORA_*.
+
+set -euo pipefail
+
+# Everything is derived from where this script lives, so the stack can be checked out
+# at any path on any machine. Nothing here is tied to a particular home directory.
+STACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Per-machine overrides, sourced before the defaults in lib/settings.sh so they win. Gitignored:
+# this is where a checkout on a different machine records its own paths and ports.
+# See etc/amphora.local.example. Never put secrets here — those live in podman.
+if [ -f "$STACK_DIR/etc/amphora.local" ]; then
+  # shellcheck disable=SC1091
+  . "$STACK_DIR/etc/amphora.local"
+fi
+
+# Settings from before the rename to Amphora. A name nothing reads any more fails
+# silently — an old HERMES_SIGNAL_ACCOUNT would just switch Signal off — so an old
+# name anywhere is refused outright, with its replacement.
+legacy_settings_check() {
+  local old new val found=""
+  if [ -f "$STACK_DIR/etc/hermes.local" ]; then
+    found="$found
+  etc/hermes.local -> etc/amphora.local (and rename the settings in it, below)"
+  fi
+  for old in IMAGE MEMORY CPUS MCS_LEVEL; do
+    eval "val=\${HERMES_$old+set}"
+    if [ -n "$val" ]; then found="$found
+  HERMES_$old -> AMPHORA_HERMES_$old"; fi
+  done
+  for old in VAULT VAULT_KANBAN VAULT_BOARD WORKSPACE OUTBOX UID GID BIND_ADDR \
+             MOUNTS_FILE LOG_DIR SANDBOX_BASE DIND_IMAGE SEARXNG_IMAGE SANDBOX_IMAGE \
+             MAIL_IMAGE SIGNAL_IMAGE SIGNAL_ACCOUNT SIGNAL_ALLOWED SIGNAL_HOME \
+             EMAIL_ADDRESS EMAIL_ALLOWED EMAIL_HOME EMAIL_IMAP_HOST EMAIL_SMTP_HOST \
+             EMAIL_IMAP_PORT EMAIL_SMTP_PORT EMAIL_POLL_INTERVAL EMAIL_AUTHSERV_ID \
+             BACKUP_DIR BACKUP_KEEP BACKUP_EXCLUDE; do
+    eval "val=\${HERMES_$old+set}"
+    if [ -n "$val" ]; then found="$found
+  HERMES_$old -> AMPHORA_$old"; fi
+  done
+  [ -z "$found" ] && return 0
+  printf '\033[31merror: settings from before the rename to Amphora:\033[0m%s\n' "$found" >&2
+  exit 1
+}
+legacy_settings_check
+
+# Everything else is in lib/, one file per subsystem, beside bin/ and so above the mount
+# like the rest of the checkout. The order matters only for settings read at load time:
+# settings.sh first, then signal.sh and email.sh, which extend SECRET_MAP and supply the
+# volume backup.sh snapshots. Functions may call across files in any order.
+for _lib in settings signal email feeds common machine mounts doctor lifecycle backup deploy; do
+  # shellcheck disable=SC1090
+  . "$STACK_DIR/lib/$_lib.sh"
+done
+unset _lib
+
+usage() {
+  cat <<'USAGE'
+amphoractl — Amphora: a containerised Hermes Agent on local Podman
+
+  doctor            check podman machine, mounts, secrets, connectivity
+  secrets set       store the OpenRouter key + dashboard login in podman's secret store,
+                    and the mailbox app password when AMPHORA_EMAIL_ADDRESS is set
+  secrets set email the mailbox app password alone
+  secrets list|rm
+  up                start the inner engine and Hermes, push etc/config.yaml
+  down              stop and remove both containers (state kept)
+  restart
+  project ls|new    list projects, or create projects/<name>
+  mount ls          every directory the agent can reach, and where it comes from
+    add <path> [name] [--ro]   expose a folder as /mounts/<name>
+    rm <name|path>   by name, by the folder, or by its /mounts/... path
+  shares            folders the podman machine must share, and how to create it
+  status            container state + live agent sandboxes
+  logs [hermes|dind|searxng|signal|signal-relay|mail|feeds|agent]
+  config push       re-push etc/config.yaml and restart Hermes
+  feeds             AI-watch sources (etc/feeds.csv) — see FEEDS.md
+    ls | held [n]   per-source counts and failures; items the filter held back
+    check <url> [type [pattern]]   what a candidate source parses to
+    push            rebuild with the current etc/feeds.csv and recreate
+    run             fetch now
+    replay [n] [source]   report each source's newest n (default 1) again, then fetch
+  signal            Signal adapter — see: amphoractl signal status
+    register '<captcha>' [--reregister] [--voice]
+    verify <code> [--pin <PIN>]
+    pin set <PIN> | pin remove | name <display name>
+    send <message> [recipient] | status | logs
+    groups          offer each group the bot is in for AMPHORA_SIGNAL_GROUPS, one
+                    session per group; senders are still checked against the allowlist
+    reset local | reset server
+  chat              open an interactive Hermes session
+  shell             root shell in the Hermes container
+  sandbox           shell in the running agent sandbox container
+  build-sandbox     rebuild the agent runtime image (after editing etc/sandbox/)
+  update            snapshot, pull newer dind and SearXNG images, restart
+    check           compare Hermes with the stable release; changes nothing running
+  reset-sandbox     drop the agent sandbox container
+  backup            snapshot the unrebuildable volumes to backups/ (stops Hermes briefly)
+    ls              list snapshots
+    schedule on|off|status   nightly LaunchAgent at 03:30
+  restore [stamp]   restore a snapshot (default: the newest)
+  promote [branch]  in the live install: snapshot, fast-forward main to dev, push,
+                    and say what to restart
+  rollback [--data] main back to where the last promote started; with --data, also
+                    restore the snapshot it took and run up
+  nuke              remove everything including secrets
+
+Commands that start, stop or replace the stack refuse to run from any checkout but
+the one that started it — a dev worktree can read the stack, never change it.
+USAGE
+}
+
+case "${1:-}" in
+  doctor)         cmd_doctor ;;
+  secrets)        shift; need_podman; [ "${1:-set}" = "list" ] || owner_check; cmd_secrets ${1+"$@"} ;;
+  up|restart)     need_podman; owner_check; cmd_up ;;   # up recreates everything
+  down)           need_podman; owner_check; cmd_down ;;
+  project)        shift; cmd_project "$@" ;;
+  mount|volume)   shift; cmd_mount ${1+"$@"} ;;
+  shares)         cmd_shares ;;
+  status)         cmd_status ;;
+  logs)           shift; cmd_logs "${1:-hermes}" ;;
+  config)         shift; [ "${1:-push}" = "push" ] || die "usage: amphoractl config push"
+                  need_podman; owner_check; cmd_config_push ;;
+  chat)           need_podman; podman exec -it "$C_HERMES" hermes ;;
+  shell)          need_podman; podman exec -it "$C_HERMES" bash ;;
+  sandbox)        need_podman
+                  sb="$(podman exec "$C_DIND" sh -c 'docker ps -q --filter label=hermes-task-id | head -1' | tr -d '\r')"
+                  [ -n "$sb" ] || die "no agent sandbox running yet — ask the agent to run a command first"
+                  podman exec -it "$C_DIND" docker exec -it "$sb" bash ;;
+  build-sandbox)  need_podman; owner_check; build_sandbox; cmd_reset_sandbox ;;
+  update)         shift; need_podman; owner_check; cmd_update ${1+"$@"} ;;
+  signal)         shift
+                  case "${1:-status}" in status|logs) ;; *) need_podman; owner_check ;; esac
+                  cmd_signal ${1+"$@"} ;;
+  feeds)          shift; cmd_feeds ${1+"$@"} ;;   # owner_check inside, on push and run
+  reset-sandbox)  need_podman; owner_check; cmd_reset_sandbox ;;
+  backup)         shift
+                  case "${1:-run}" in ls) ;; *) need_podman; owner_check ;; esac
+                  cmd_backup ${1+"$@"} ;;
+  restore)        shift; need_podman; owner_check; cmd_restore "${1:-}" ;;
+  nuke)           need_podman; owner_check; cmd_nuke ;;
+  promote)        shift; cmd_promote "${1:-dev}" ;;
+  rollback)       shift; cmd_rollback ${1+"$@"} ;;
+  ""|-h|--help|help) usage ;;
+  *)              die "unknown command: $1" ;;
+esac

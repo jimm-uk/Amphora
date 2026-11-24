@@ -1,0 +1,176 @@
+# Per-machine settings for this checkout. Copy to `etc/amphora.local` (gitignored) and
+# edit — the stack itself is path-independent, so most machines need none of this.
+#
+#     cp etc/amphora.local.example etc/amphora.local
+#
+# Sourced as shell by bin/amphoractl before its defaults, so every value here wins.
+# NEVER put API keys or passwords in this file. Secrets live in podman's secret
+# store: `./bin/amphoractl secrets set`.
+
+# Where everything the stack produces lives, as opposed to the code and config in this
+# checkout. Beneath it:
+#
+#     projects/   the agent's work, one folder per project   -> /projects
+#     outbox/     files the agent sends                       -> /mounts/outbox
+#     backups/    volume snapshots
+#     logs/       the sweep's log, the deploy log
+#     archive/    superseded agent output, kept by hand
+#
+# Defaults to the checkout itself, which keeps a fresh clone self-contained. A live
+# install sets it, so the checkout holds nothing but what git tracks plus this file.
+# Only projects/ and outbox/ are shared with the podman machine; the folder itself
+# must not be, and must not be inside any git repository.
+#AMPHORA_RUNTIME_DIR="$HOME/amphora-runtime"
+
+# The podman machine Amphora runs in, and the connection amphoractl uses to reach it.
+# The machine is Amphora's alone: podman on macOS runs one VM at a time, so general
+# container work belongs on another engine (see README, Prerequisites). A rootful
+# machine's connection is <machine>-root; override only if yours is named otherwise.
+#AMPHORA_MACHINE=amphora
+#AMPHORA_CONNECTION=amphora-root
+
+# Where the agent's projects live, if not <runtime>/projects.
+#AMPHORA_WORKSPACE="$HOME/Code"
+
+# Where files the agent sends are put (the agent sees /mounts/outbox), if not
+# <runtime>/outbox. Keep it outside the projects folder and inside a folder the podman
+# machine shares.
+#AMPHORA_OUTBOX="$HOME/Amphora-outbox"
+
+# Ownership of files the agent writes. Defaults to your own `id -u` / `id -g`, which
+# is right on any machine — set these only when that detection is wrong.
+#AMPHORA_UID=501
+#AMPHORA_GID=20
+
+# Extra folders exposed to the agent live in etc/mounts, not here — that file is data
+# rather than shell, so a folder list can never become a code path. Manage it with
+# `amphoractl mount add|rm|ls`; see etc/mounts.example. Override its location only if
+# you keep it somewhere else.
+#AMPHORA_MOUNTS_FILE="$HOME/.config/amphora/mounts"
+
+# Obsidian — one switch for the whole feature. Optional and off by default: leave
+# AMPHORA_VAULT unset and nothing is mounted, no sweep runs, and the stack behaves
+# exactly like a checkout that never heard of Obsidian. Comment it out again on a
+# machine or VM that has no vault and everything turns off together — that is the
+# only edit such a machine needs.
+#
+# Point it at the VAULT ROOT. The folder holding the board (<vault>/Kanban by
+# default) is what crosses into the container, reaching the agent at
+# /mounts/kanban so it can read and move cards from Signal.
+#
+# Only the board crosses. The sweep (tools/obsidian-kanban/) runs on the Mac and
+# reads the vault in place, so the agent has no route to your notes.
+#
+# The board folder must be one the podman machine shares, or it binds as an empty
+# directory with no error anywhere. `amphoractl shares` lists what the machine needs;
+# `amphoractl up` refuses a folder outside it; `doctor` checks what dind can actually see.
+#AMPHORA_VAULT="$HOME/Obsidian/MyVault"
+
+# Override only if the board does not live in <vault>/Kanban. Inert without
+# AMPHORA_VAULT, so it can never leave the feature half-on.
+#AMPHORA_VAULT_KANBAN="$HOME/Obsidian/MyVault/Boards"
+#AMPHORA_VAULT_BOARD="Board.md"
+
+# Where the scheduled sweep writes its log. Defaults to <runtime>/logs. Only
+# tools/obsidian-kanban uses it.
+#AMPHORA_LOG_DIR="$HOME/Library/Logs/amphora"
+
+# Address the dashboard (port 9119, the only published port) is bound to on the Mac.
+#AMPHORA_BIND_ADDR=127.0.0.1
+
+# The zone cron schedules are read in (an IANA name). Defaults to this Mac's own zone at
+# the time hermes is created, so it follows the Mac when it travels; set it to pin one.
+# Applied by `amphoractl config push`; existing jobs keep their next run time until their
+# schedule is re-set (README, "Timezone").
+#AMPHORA_TIMEZONE="America/New_York"
+
+# Resources given to the Hermes container.
+#AMPHORA_HERMES_MEMORY=4g
+#AMPHORA_HERMES_CPUS=2
+
+# SELinux MCS level the hermes container runs at. Pinned so that files Hermes writes
+# stay readable across recreates; any s0:cN,cM with N < M <= 1023 will do. Changing it
+# strands everything written under the old value until the volume is levelled — see
+# `amphoractl doctor`.
+#AMPHORA_HERMES_MCS_LEVEL=s0:c421,c907
+
+# Image overrides. Hermes is pinned in lib/settings.sh; setting it here overrides that pin,
+# later ones included, so prefer changing the pin.
+#AMPHORA_HERMES_IMAGE=docker.io/nousresearch/hermes-agent@sha256:<digest>
+#AMPHORA_SANDBOX_BASE=docker.io/nikolaik/python-nodejs:python3.11-nodejs20
+#AMPHORA_DIND_IMAGE=docker.io/library/docker:dind
+#AMPHORA_SEARXNG_IMAGE=docker.io/searxng/searxng:latest
+
+# Volume snapshots. Defaults to <runtime>/backups, keeping the newest 14. Point the
+# directory at an external disk if you want the snapshots off this machine's disk.
+#AMPHORA_BACKUP_DIR="$HOME/Backups/amphora"
+#AMPHORA_BACKUP_KEEP=14
+
+# Paths inside a volume that are skipped as caches, taking a snapshot from ~1.8 GB to
+# ~55 MB. Everything here is refetched by the agent on demand, which is why a restore
+# needs network on first use. Drop ./bin from the list if you want a restore that can
+# bootstrap offline. These apply to hermes-data only — amphora-signal-data is copied whole,
+# because ./.local/share there is the Signal account's identity keys.
+#AMPHORA_BACKUP_EXCLUDE="./home/.cache ./home/.npm ./.cache ./lazy-packages ./.local/share ./.cua-driver/packages ./bin ./skills/.hub/index-cache ./cache/web"
+
+# Signal. Leave AMPHORA_SIGNAL_ACCOUNT unset and the Signal container, volume and network
+# are never created — the stack behaves exactly as it does without Signal.
+#
+# The agent gets its own Signal account on a spare number; you message it as a contact.
+# Enrol it with `amphoractl signal register` — see the Signal section of README.md.
+#AMPHORA_SIGNAL_ACCOUNT="+15550100000"
+
+# Who may talk to the agent, and whom it may write to. E.164 numbers, and ACI UUIDs where a number is not enough:
+# Signal only includes the sender's number in sealed-sender messages, which need the
+# profile key, so a first contact can arrive as a bare UUID and is matched literally.
+# A refused sender prints its uuid in the hermes log — add it here.
+#AMPHORA_SIGNAL_ALLOWED="+15550100000,7c9e6679-7425-40de-944b-e07fc1f90ae7"
+
+# Groups the agent answers in, by group ID; unset, group messages are ignored. Each group
+# is a session of its own, with its own history and its own /model, so a group holding
+# you and the bot is a second chat window. Senders are still matched against
+# AMPHORA_SIGNAL_ALLOWED. Create the group in the app, then run `amphoractl signal groups`,
+# which offers each group the bot is in, writes this line and offers the config push.
+# "*" is refused.
+#AMPHORA_SIGNAL_GROUPS="aBcD...=,eFgH...="
+
+# Where cron jobs and proactive messages are delivered. Usually your own number; it must be
+# on AMPHORA_SIGNAL_ALLOWED, or be group:<id> for a listed group.
+#AMPHORA_SIGNAL_HOME="+15550100000"
+
+# Swap to ...signal-cli-jre:latest if the native build misbehaves during registration.
+#AMPHORA_SIGNAL_IMAGE=registry.gitlab.com/packaging/signal-cli/signal-cli-native:latest
+
+# Email. Leave AMPHORA_EMAIL_ADDRESS unset and nothing email-related reaches Hermes. The
+# agent gets a mailbox of its own — never a personal one, since IMAP credentials read the
+# whole mailbox. The app password does NOT go here: `amphoractl secrets set email`.
+#AMPHORA_EMAIL_ADDRESS="agent@example.com"
+
+# The only addresses the agent corresponds with, both ways: the adapter ignores anyone
+# else, and the mail relay refuses to send to anyone else.
+#AMPHORA_EMAIL_ALLOWED="you@example.com"
+
+# Where cron jobs and proactive messages are sent. Must be on the list above.
+#AMPHORA_EMAIL_HOME="you@example.com"
+
+# Required with the address. These are Google's; any IMAP/SMTP provider works. The SMTP
+# host is only ever used by the relay — Hermes is pointed at the relay instead.
+#AMPHORA_EMAIL_IMAP_HOST=imap.gmail.com
+#AMPHORA_EMAIL_SMTP_HOST=smtp.gmail.com
+
+# Trust only the provider's own Authentication-Results when deciding a sender is genuine.
+#AMPHORA_EMAIL_AUTHSERV_ID=mx.google.com
+
+# Optional; empty takes the defaults (993, 587 with STARTTLS or 465 for TLS, 15 seconds).
+#AMPHORA_EMAIL_IMAP_PORT=993
+#AMPHORA_EMAIL_SMTP_PORT=587
+#AMPHORA_EMAIL_POLL_INTERVAL=15
+
+# AI-watch feeds. Switched on by etc/feeds.csv (copy etc/feeds.csv.example), not by a
+# variable here; these only tune it. FEEDS.md has the design.
+# Where the fetcher writes batches for the agent. Must be a real folder, with no symlink
+# on the way, inside a machine share. Default: <projects>/ai-watch/inbox.
+#AMPHORA_FEEDS_INBOX="$HOME/amphora-runtime/projects/ai-watch/inbox"
+# Seconds between fetches, at least 900. Default three hours.
+#AMPHORA_FEEDS_INTERVAL=10800
+#AMPHORA_FEEDS_IMAGE=amphora-feeds:local
