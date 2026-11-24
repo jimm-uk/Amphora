@@ -8,6 +8,45 @@ The agent is treated as untrusted. It has a terminal, and it reads text written 
 Everything here is arranged so that a misled agent can do no more than an honest one was
 already allowed to. [THREAT-MODEL.md](THREAT-MODEL.md) explains how.
 
+### Why use Amphora instead of another sandbox, such as sbx?
+
+[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) (`sbx`) gives an agent a safe
+place to work; Amphora gives you a lasting assistant with careful limits on whom it can
+message. For quick, isolated coding sessions, `sbx` is the easier choice. For an assistant
+that remembers, runs on a schedule and can be reached by Signal or email, Amphora earns
+its upkeep.
+
+| | Pros | Cons |
+|---|---|---|
+| **Amphora** | Always on, with memory and scheduled jobs | More to set up and maintain |
+| | Signal and email recipients enforced outside the agent | The agent's shell has open internet access |
+| | API key and Hermes' state kept apart from the command sandbox (skills and caches are shared read-only) | Projects share one sandbox and VM |
+| | Backups, rollback and live checks with `doctor` | An escape could reach Hermes' data and the shared Mac folders |
+| **sbx** | A microVM and Docker engine for each sandbox | No documented messaging or scheduling |
+| | Outbound network denied unless a rule allows it (the default rules are broad) | Network rules choose destinations; they are not a list of message recipients |
+| | Keys kept out of the VM by a host-side proxy | The agent and its shell share one sandbox |
+| | Persists until removed | Backup and upgrade rollback are left to you |
+
+Sandbox technology is moving quickly. This compares the two as of November 2026, and may
+soon be obsolete; check the current `sbx` documentation before choosing.
+
+**Why Podman rather than Docker?** Podman's rootless default is often cited as its
+advantage. Amphora cannot use it: the nested engine needs `--privileged`, so the machine
+is rootful. Instead it relies on:
+
+- **A VM of its own.** A named machine, addressed by its own connection, keeps everyday
+  container work, and a stray `docker system prune --volumes`, away from the agent's only data.
+- **Narrow shares.** The machine is created sharing only the folders the stack binds.
+- **SELinux.** It is enforcing in the machine's VM, so other confined containers there
+  cannot read Hermes' files. The privileged engine is not confined by it.
+- **An unprivileged agent sandbox.** Commands run as an ordinary user with no `sudo`.
+  This comes from the sandbox image, not from Podman.
+
+Docker-compatible engines can provide some of this too, and the nested engine is
+Docker's. The protection comes from the arrangement more than from the engine.
+
+### Contents
+
 **Start** [Before you start](#before-you-start) · [Quickstart](#quickstart) · [Commands](#commands)<br>
 **Use** [Folders](#giving-the-agent-a-folder) · [Settings](#settings) · [Models](#models) · [Connecting](#connecting-signal-and-email) · [Signal](#signal) · [Email](#email) · [Feeds](#ai-watch-feeds)<br>
 **Look after** [Backups](#backups) · [Updating Hermes](#updating-hermes) · [Code and runtime](#code-runtime-and-dev) · [Troubleshooting](#troubleshooting)
